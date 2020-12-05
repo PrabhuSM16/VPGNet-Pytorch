@@ -8,7 +8,7 @@ from sklearn.metrics import f1_score, recall_score
 # 3. TP: Predict pos, label pos
 # 4. FP: Predict pos, label neg
 # 5. FN: Predict neg, label pos
-# (TP: predict in circles; FN: remain pixels not in circles; FP: predict no in circle)
+# (TP: predict in circles; FN: remain pixels not in circles; FP: predict not in circle)
 
 def create_circular_mask(h, w, center=None, radius=None):
     # Create a circular mask from center on an (h,w) map with euclidean distance radius
