@@ -1,4 +1,3 @@
-# CopyRight @TIAN ZICHEN
 # Generate annotated file list and masked images for all .mat file under current path iteratively (include subfolders).
 # Usage:
 #    python3 ./gen_label.py [output_file.txt]
