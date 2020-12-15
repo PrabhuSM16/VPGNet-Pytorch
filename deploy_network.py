@@ -17,22 +17,40 @@ net = caffe.Net(MODEL_FILE, PRETRAINED, caffe.TEST)
 print ("successfully loaded classifier")
 
 # Test on Image
-image_path = '/media/herman/WD_BLACK/Ubuntu/FYP/VPGNet-master/caltech-lanes/cordova2/f00000.png'
+image_path = '/media/herman/WD_BLACK/Ubuntu/FYP/VPGNet-master/caltech-lanes/cordova2/f00370.png'
 image = cv2.imread(image_path)
-net.blobs['data'].reshape(1, image.shape[2], image.shape[0], image.shape[1])
+# net.blobs['data'].reshape(1, image.shape[2], image.shape[0], image.shape[1])
 
-# Transform Image for pre-processing
-# Input in Caffe data layer is (C, H, W)
-transformer = caffe.io.Transformer({'data': (1, image.shape[2], image.shape[0], image.shape[1])})
-transformer.set_transpose('data', (2, 0, 1)) # To reshape from (H, W, C) to (C, H, W) ...
-transformer.set_raw_scale('data', 1/255.) # To scale to [0, 1] ...
-net.blobs['data'].data[...] = transformer.preprocess('data', image)
+# New Method from Github Repo
+test_img = caffe.io.load_image(image_path)
+transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+transformer.set_raw_scale('data', 255)      # rescale from [0, 1] to [0, 255]
+transformer.set_channel_swap('data', (2, 1, 0))
+transformed_img = transformer.preprocess('data', test_img) # swap R, B channel, the final input to the network should be RGB
+net.blobs['data'].data[...] = transformed_img
 
-# Forward Pass for prediction
 net.forward()
-score_bb = net.blobs['bb-output-tiled'].data	#blobs['blob name']
-score_multi = net.blobs['multi-label'].data
-score_binary = net.blobs['binary-mask'].data
+
+#Binary Mask blob masking
+obj_mask = net.blobs['binary-mask'].data
+x_offset_mask = 4 # offset to align output with original pic: due to padding
+y_offset_mask = 4
+masked_img = test_img.copy()
+mask_grid_size = test_img.shape[0] / obj_mask.shape[2]
+small_mask = obj_mask[0, 1, ...] * 255
+resized_mask = cv2.resize(small_mask, (640, 480))
+translationM = np.float32([[1, 0, x_offset_mask*mask_grid_size], [0, 1, y_offset_mask*mask_grid_size]])
+resized_mask = cv2.warpAffine(resized_mask, translationM, (640, 480)) # translate (shift) the image
+
+cv2.imwrite('mask.png', resized_mask)
+
+
+# # Forward Pass for prediction
+# net.forward()
+# score_bb = net.blobs['bb-output-tiled'].data	#blobs['blob name']
+# score_multi = net.blobs['multi-label'].data
+# score_binary = net.blobs['binary-mask'].data
 
 # print("bb has shape ", net.blobs['bb-output-tiled'].data.shape) #(1, 4, 120, 160)
 # print("multi has shape ", net.blobs['multi-label'].data.shape)  #(1, 64, 60, 80)
