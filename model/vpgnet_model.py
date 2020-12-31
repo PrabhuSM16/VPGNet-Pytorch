@@ -39,6 +39,7 @@ class VPGNet(nn.Module):
              nn.ReLU(),
              nn.Dropout2d(0.5),]
     self.conv6 = nn.Sequential(*conv6)
+    
     ### Branched Layers ###
     ## Grid Box ##
     # Layer 7a -> input shape: Bx4096x15x20
@@ -49,6 +50,8 @@ class VPGNet(nn.Module):
     # Layer 8a -> input shape: Bx4096x15x20 -> output: Bx256x15x20
     conv8a = [nn.Conv2d(4096, 256, 1, 1, 0),]
     self.conv8a = nn.Sequential(*conv8a)
+    self.tile_a = tiling([1,256,15,20], 8)
+    
     ## Object Mask ##
     # Layer 7b -> input shape: Bx4096x15x20
     conv7b = [nn.Conv2d(4096, 4096, 1, 1, 0),
@@ -58,6 +61,8 @@ class VPGNet(nn.Module):
     # Layer 8b -> input shape: Bx4096x15x20 -> output: Bx256x15x20
     conv8b = [nn.Conv2d(4096, 128, 1, 1, 0),]
     self.conv8b = nn.Sequential(*conv8b)
+    self.tile_b = tiling([1,128,15,20], 8)
+    
     ## Multi-label ##
     # Layer 7c -> input shape: Bx4096x15x20
     conv7c = [nn.Conv2d(4096, 4096, 1, 1, 0),
@@ -66,6 +71,8 @@ class VPGNet(nn.Module):
     self.conv7c = nn.Sequential(*conv7c)# Layer 8c -> input shape: Bx4096x15x20 -> output: Bx256x15x20
     conv8c = [nn.Conv2d(4096, 1024, 1, 1, 0),]
     self.conv8c = nn.Sequential(*conv8c)
+    self.tile_c = tiling([1,1024,15,20], 4)
+    
     ## VPP ##
     # Layer 7d -> input shape: Bx4096x15x20
     conv7d = [nn.Conv2d(4096, 4096, 1, 1, 0),
@@ -75,7 +82,8 @@ class VPGNet(nn.Module):
     # Layer 8d -> input shape: Bx4096x15x20 -> output: Bx256x15x20
     conv8d = [nn.Conv2d(4096, 320, 1, 1, 0),]
     self.conv8d = nn.Sequential(*conv8d)
-  
+    self.tile_d = tiling([1,320,15,20], 8)
+    
   def forward(self, x):
     x1 = self.conv1(x)
     x2 = self.conv2(x1)
@@ -86,22 +94,54 @@ class VPGNet(nn.Module):
     # Grid box
     x7a = self.conv7a(x6)
     x8a = self.conv8a(x7a)
+    x8a = self.tile_a(x8a)
     # Object mask
     x7b = self.conv7b(x6)
     x8b = self.conv8b(x7b)
+    x8b = self.tile_b(x8b)
     # Multi-label
     x7c = self.conv7c(x6)
     x8c = self.conv8c(x7c)
+    x8c = self.tile_c(x8c)
     # VPP
     x7d = self.conv7d(x6)
     x8d = self.conv8d(x7d)
+    x8d = self.tile_d(x8d)
 #    return [x1,x2,x3,x4,x5,x6,x7a,x8a,x7b,x8b,x7c,x8c,x7d,x8d]
     return {'shared': x6, 
             'gridBox': x8a, 
             'objectMask': x8b, 
             'multiLabel': x8c,
             'vpp': x8d}
-    
+
+class tiling(nn.Module):
+# Tiling layer from orginal caffe-VPGNet 
+  def __init__(self, x_dim, tile_dim):
+    super(tiling, self).__init__()
+    self.b,d,self.h,self.w = x_dim
+    self.tile_dim = tile_dim
+    self.out_d = int(d/(tile_dim**2)) # 4
+    out_h = int(self.h*tile_dim) # 15
+    out_w = int(self.w*tile_dim) # 20
+    self.tiled_out = torch.FloatTensor(self.b, self.out_d, out_h, out_w).fill_(0.)  
+
+  def forward(self, x):
+    for ds in range(self.out_d):
+      d_start = ds*(self.tile_dim**2)
+      d_end = (ds+1)*(self.tile_dim**2)
+      for hs in range(self.h):
+        for ws in range(self.w):
+          tile_select = x[:, d_start:d_end, hs, ws]
+#          tile_select = x[:, ds*(self.tile_dim**2):(ds+1)*(self.tile_dim**2), hs, ws] 
+          out_tile = tile_select.view(self.b, self.tile_dim, self.tile_dim)
+          h_start = hs*self.tile_dim
+          h_end = (1+hs)*self.tile_dim
+          w_start = ws*self.tile_dim
+          w_end = (1+ws)*self.tile_dim
+          self.tiled_out[:, ds, h_start:h_end, w_start:w_end] = out_tile
+#          self.tiled_out[:, ds, hs*self.tile_dim:(1+hs)*self.tile_dim, ws*self.tile_dim:(1+ws)*self.tile_dim] = out_tile
+    return self.tiled_out
+
 if __name__ == '__main__':
   model = VPGNet()
   y = model(torch.FloatTensor(1,3,480,640))
@@ -110,5 +150,3 @@ if __name__ == '__main__':
   print('object mask output:',y['objectMask'].shape)
   print('multi label output:',y['multiLabel'].shape)
   print('vpp output:',y['vpp'].shape)
-
-    
