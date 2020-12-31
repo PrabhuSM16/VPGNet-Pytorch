@@ -1,222 +1,152 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import os
+import time # time the execution time
+
 import caffe
 import cv2
 
-# Set the right path to your model definition file, pretrained model weights,
-# and the image you would like to classify.
-MODEL_FILE = './deploy.prototxt'
-PRETRAINED = 'snapshots/split_iter_10000.caffemodel'
+import shelve # store workspace
 
-# load the model
-caffe.set_mode_gpu()
-caffe.set_device(0)
+class LaneDetector:
 
-net = caffe.Net(MODEL_FILE, PRETRAINED, caffe.TEST)
-print ("successfully loaded classifier")
+	def __init__(self, workspace_root='.'):
+	    if not os.path.exists(os.path.join(os.getcwd(), workspace_root)):
+	        os.mkdir(workspace_root)
 
-# Test on Image
-image_path = '/media/herman/WD_BLACK/Ubuntu/FYP/VPGNet-master/caltech-lanes/cordova2/f00370.png'
-image = cv2.imread(image_path)
-# net.blobs['data'].reshape(1, image.shape[2], image.shape[0], image.shape[1])
+	    self.model = './deploy.prototxt'
+	    self.pretrained = 'snapshots/split_iter_10000.caffemodel'
+	    caffe.set_mode_gpu()
+	    caffe.set_device(0)
+	    self.net = caffe.Net(self.model, self.pretrained, caffe.TEST)
+	    print ("successfully loaded classifier")
 
-# New Method from Github Repo
-test_img = caffe.io.load_image(image_path)
-transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
-transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
-transformer.set_raw_scale('data', 255)      # rescale from [0, 1] to [0, 255]
-transformer.set_channel_swap('data', (2, 1, 0))
-transformed_img = transformer.preprocess('data', test_img) # swap R, B channel, the final input to the network should be RGB
-net.blobs['data'].data[...] = transformed_img
+	# visualize net shape:
+	# for name, blob in net.blobs.iteritems():
+	#    print("{:<5}: {}".format(name, blob.data.shape))
 
-net.forward()
+	def load_image(self, filename):
+	    self.filename = filename
+	    self.img = caffe.io.load_image(filename)
+	    transformer = caffe.io.Transformer({'data': self.net.blobs['data'].data.shape})
+	    transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+	    transformer.set_raw_scale('data', 255)      # rescale from [0, 1] to [0, 255]
+	    transformer.set_channel_swap('data', (2, 1, 0))
+	    self.transformed_img = transformer.preprocess('data', self.img) # swap R, B channel, the final input to the network should be RGB
+	    self.net.blobs['data'].data[...] = self.transformed_img
 
-#Binary Mask blob masking
-obj_mask = net.blobs['binary-mask'].data
-x_offset_mask = 4 # offset to align output with original pic: due to padding
-y_offset_mask = 4
-masked_img = test_img.copy()
-mask_grid_size = test_img.shape[0] / obj_mask.shape[2]
-small_mask = obj_mask[0, 1, ...] * 255
-resized_mask = cv2.resize(small_mask, (640, 480))
-translationM = np.float32([[1, 0, x_offset_mask*mask_grid_size], [0, 1, y_offset_mask*mask_grid_size]])
-resized_mask = cv2.warpAffine(resized_mask, translationM, (640, 480)) # translate (shift) the image
+	def forward(self):
+	    """ forward-propagation """
+	    self.net.forward()
 
-cv2.imwrite('mask.png', resized_mask)
+	def extract_mask(self, num):
+		# Visualize the test result:
 
+		for i in range(3):
+		    for j in range(self.transformed_img.shape[1]):
+		        for k in range(self.transformed_img.shape[2]):
+		            self.img[j, k, i] = self.transformed_img[i, j, k]
+		# cv2.imwrite(workspace_root + "example.png", self.img)
 
-# # Forward Pass for prediction
-# net.forward()
-# score_bb = net.blobs['bb-output-tiled'].data	#blobs['blob name']
-# score_multi = net.blobs['multi-label'].data
-# score_binary = net.blobs['binary-mask'].data
+		obj_mask = self.net.blobs['binary-mask'].data
+		# print obj_mask.shape
+		# print transformed_img.shape
 
-# print("bb has shape ", net.blobs['bb-output-tiled'].data.shape) #(1, 4, 120, 160)
-# print("multi has shape ", net.blobs['multi-label'].data.shape)  #(1, 64, 60, 80)
-# print("binary has shape ", net.blobs['binary-mask'].data.shape)	#(1, 2, 120, 160)
+		x_offset_mask = 4 # offset to align output with original pic: due to padding
+		y_offset_mask = 4
 
-# Printing the output from each task
-# print('bb score: ', score_bb)
-# print('multi label score: ', score_multi)
-# print('binary score: ', score_binary)
+		masked_img = self.img.copy()
+		mask_grid_size = self.img.shape[0] / obj_mask.shape[2]
+		tot = 0
+		for i in range(120):
+		    for j in range(160):
+		        mapped_value =  int(obj_mask[0, 0, i, j] * 255)
+		        obj_mask[0, 0, i, j] = mapped_value
 
+		        mapped_value =  int(obj_mask[0, 1, i, j] * 255)
+		        obj_mask[0, 1, i, j] = mapped_value
 
-# Splitting channels from bb 
-# bb_ch0 = score_bb[:, 0]	#(1, 4, 120, 160) 
-#[:,0] means first column, using empty slice
-# print("Channel 1 is: ", bb_ch0)
-# bb_ch1 = score_bb[:, 1]
-# print("Channel 2 is: ", bb_ch1)
-# bb_ch2 = score_bb[:, 2]
-# print("Channel 3 is: ", bb_ch2)
-# bb_ch3 = score_bb[:, 3]
-# print("Channel 4 is: ", bb_ch3)
+		        if mapped_value > 100:
+		            masked_img[(i+y_offset_mask)*mask_grid_size : (i+1+y_offset_mask)*mask_grid_size + 1, (j+x_offset_mask)*mask_grid_size : (j+x_offset_mask+1)*mask_grid_size + 1]\
+		             = (mapped_value, mapped_value, mapped_value) # mask with white block
 
+		small_mask = obj_mask[0, 1, ...]
+		resized_mask = cv2.resize(small_mask, (640, 480))
+		translationM = np.float32([[1, 0, x_offset_mask*mask_grid_size], [0, 1, y_offset_mask*mask_grid_size]])
+		resized_mask = cv2.warpAffine(resized_mask, translationM, (640, 480)) # translate (shift) the image
+		cv2.imwrite('VPG_log/labeled/%d_mask.png'%num, resized_mask)
+		cv2.imwrite('VPG_log/labeled/%d_masked.png'%num, masked_img)
 
-# # Attempting to Check for None values
-# for elem in bb_ch0.flat:
-#         if elem is None:
-#         	print("NONE DETECTED")
-        # else:
-        # 	print("No NONEs")
+	def visualize(self, num):
+		# visualize classification
+		original_img = cv2.imread(self.filename)
+		original_img = cv2.resize(original_img, (640, 480))
+		classification = self.net.blobs['multi-label'].data
+		classes = []
+		y_offset_class = 1 # offset for classification error
+		x_offset_class = 1
+		grid_size = self.img.shape[0]/60
 
+		# create color for visualizing classification
+		def color_options(x):
+		    return {
+		        1: (0, 255, 0), # green color
+		        2: (255, 0, 0), # blue			# White Lines (?)
+		        3: (0, 0, 255), # red 			# Only appears on boundary of road
+		        4: (0, 0, 0)	# black			# Yellow Lines (?)
+		    }[x]
 
-# # Trying to imshow the bb output (without splitting channels)
-# print(score_bb.shape)
-# score_bb = np.transpose(score_bb, (0, 3, 2, 1))
-# print(score_bb.shape)
-# cv2.imshow('image', score_bb)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
+		for i in range(60):
+		    classes.append([])
+		    for j in range(80):
+		        max_value = 0
+		        maxi = 0
+		        # Finding max value 
+		        for k in range(64):
+		            if classification[0, k, i, j] > max_value:
+		                max_value = classification[0, k, i, j]
+		                maxi = k
+		        classes[i].append(maxi)
+		        if maxi != 0:
+		            pt1 = ((j + y_offset_class)*grid_size, (i+x_offset_class)*grid_size)
+		            pt2 = ((j + y_offset_class)*grid_size+grid_size, (i+x_offset_class)*grid_size+grid_size)
+		            # print maxi
+		            cv2.rectangle(original_img, pt1, pt2, color_options(maxi), 2)
+		            if maxi not in [1, 2, 3, 4]:
+		                print "ERROR OCCURRED: an unknown class detected!"
 
+		cv2.imwrite('VPG_log/labeled/%d_labeled.png'%num, original_img)
 
-# # Trying to imshow the output image of bb channel 1
-# print(bb_ch0.shape) #(1, 120, 160) 
-# print("Channel is: ", bb_ch0)
-# bb_ch0 = np.transpose(bb_ch0, (2, 1, 0))
-# print(bb_ch0.shape)
-# cv2.imshow('image', bb_ch0)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
+		# bounding box visualization
+		# bb = net.blobs['bb-output-tiled'].data
+		# print bb.shape
+		# bb_visualize0 = bb[0, 0, ...]*255
+		# bb_visualize1 = bb[0, 1, ...]*255
+		# bb_visualize2 = bb[0, 2, ...]*255
+		# bb_visualize3 = bb[0, 3, ...]*255
+		# cv2.imwrite('bb_visualize0.png', bb_visualize0)
+		# cv2.imwrite('bb_visualize1.png', bb_visualize1)
+		# cv2.imwrite('bb_visualize2.png', bb_visualize2)
+		# cv2.imwrite('bb_visualize3.png', bb_visualize3)
 
+		# keys = ['classification', 'obj_mask', 'x_offset_class', 'y_offset_class', 
+		# 'mask_grid_size', 'img', 'max_value', 'x_offset_mask', 'y_offset_mask', 'grid_size', 'transformed_img', 
+		# 'classes', 'masked_img', 'resized_mask', 'small_mask']
 
-# # Trying to imshow the output image of bb channel 2
-# print(bb_ch1.shape) #(1, 120, 160) 
-# print("Channel is: ", bb_ch1)
-# bb_ch1 = np.transpose(bb_ch1, (2, 1, 0))
-# print(bb_ch1.shape)
-# cv2.imshow('image', bb_ch1)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
+		# shelf_file_handle = shelve.open(workspace_root + 'shelve.out', 'n')
 
-
-# # Trying to imshow the output image of bb channel 3
-# print(bb_ch2.shape) #(1, 120, 160) 
-# print("Channel is: ", bb_ch2)
-# bb_ch2 = np.transpose(bb_ch2, (2, 1, 0))
-# print(bb_ch2.shape)
-# cv2.imshow('image', bb_ch2)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
-
-
-# # Trying to imshow the output image of bb channel 4
-# print(bb_ch3.shape) #(1, 120, 160) 
-# print("Channel is: ", bb_ch3)
-# bb_ch3 = np.transpose(bb_ch3, (2, 1, 0))
-# print(bb_ch3.shape)
-# cv2.imshow('image', bb_ch3)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
-
-
-# # Checking the different channels from multi-label
-# multi_ch0 = score_multi[:, 3]
-# print(multi_ch0)
-# print(multi_ch0.shape) #(1, 120, 160) 
-# print("Channel is: ", multi_ch0)
-# multi_ch0 = np.transpose(multi_ch0, (1, 2, 0))
-# print(multi_ch0.shape)
-# cv2.imshow('image', multi_ch0)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
+		# for key in keys:
+		#     print 'saving variable: ', key
+		#     shelf_file_handle[key] = globals()[key]
+		# shelf_file_handle.close()
 
 
-# # Obtaining the different layer names
-# def get_layers(net):
-#     """
-#     Get the layer names of the network.
-    
-#     :param net: caffe network
-#     :type net: caffe.Net
-#     :return: layer names
-#     :rtype: [string]
-#     """
-    
-#     return [layer for layer in net.params.keys()]
+workspace_root = 'VPG_log/'
+detector = LaneDetector(workspace_root)
 
-# layer_name = get_layers(net)
-# print(layer_name)
-
-
-# Attempting to Resize
-# print(score_bb)
-# # dsize = (640, 480)
-# print("bb shape is: ", score_bb.shape)
-# bb_resize = cv2.resize(score_bb, dsize, interpolation = cv2.INTER_AREA)
-# print("New size of bb is: ", bb_resize.shape)
-
-
-# Showing Original Image
-# image_show = cv2.imread(image_path)
-# print(image_show)
-# imgplot = cv2.imshow('image', image_show)
-# k = cv2.waitKey(0)
-# if k == 27:         # wait for ESC key to exit
-#     cv2.destroyAllWindows()
-
-
-# Visulisation method from another website, not edited 
-# def visualize_kernels(net, layer, zoom = 5):
-#     """
-#     Visualize kernels in the given convolutional layer.
-    
-#     :param net: caffe network
-#     :type net: caffe.Net
-#     :param layer: layer name
-#     :type layer: string
-#     :param zoom: the number of pixels (in width and height) per kernel weight
-#     :type zoom: int
-#     :return: image visualizing the kernels in a grid
-#     :rtype: numpy.ndarray
-#     """
-    
-#     num_kernels = net.params[layer][0].data.shape[0]
-#     num_channels = net.params[layer][0].data.shape[1]
-#     kernel_height = net.params[layer][0].data.shape[2]
-#     kernel_width = net.params[layer][0].data.shape[3]
-
-#     print(num_kernels)
-#     print(num_channels)
-#     print(kernel_height)
-#     print(kernel_width)
-    
-#     image = np.zeros((num_kernels*zoom*kernel_height, num_channels*zoom*kernel_width))
-#     for k in range(num_kernels):
-#         for c in range(num_channels):
-#             kernel = net.params[layer][0].data[k, c, :, :]
-#             kernel = cv2.resize(kernel, (zoom*kernel_height, zoom*kernel_width), kernel, 0, 0, cv2.INTER_NEAREST)
-#             kernel = (kernel - np.min(kernel))/(np.max(kernel) - np.min(kernel))
-#             image[k*zoom*kernel_height:(k + 1)*zoom*kernel_height, c*zoom*kernel_width:(c + 1)*zoom*kernel_width] = kernel
-    
-#     return image
-
-# visualize_kernels(net, "bb-output", zoom=5)
-
+for i in range(80): # Original range is 245
+    detector.load_image('/media/herman/WD_BLACK/Ubuntu/FYP/VPGNet-master/caltech-lanes/cordova2/f'+str(i).zfill(5)+'.png')
+    detector.forward()
+    mask = detector.extract_mask(i)
+    detector.visualize(i)
