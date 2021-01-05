@@ -36,10 +36,10 @@ def vpg_lane_f1(map1, map2, mask_R = 4):
     
     map1_mask = map1 > 0
     map2_mask = map2 > 0 # Assume map1,2 only have one class
-    extend_mask = numpy.ones((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
+    extend_mask = np.ones((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
     for i in range(0, 480, 8):
         for j in range(0, 640, 8):
-            if map2_mask(i,j) == True: # if this pixel have label, this 8*8 grid should have same label
+            if map2_mask[i,j] == True: # if this pixel have label, this 8*8 grid should have same label
                 area_mask = create_circular_mask(480, 640, center = (i,j), radius = mask_R)
                 extend_mask = extend_mask + area_mask # add the area_mask to blank mask
                 
