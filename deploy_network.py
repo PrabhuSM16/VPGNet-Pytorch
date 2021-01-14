@@ -85,9 +85,9 @@ class LaneDetector:
 		resized_mask = cv2.resize(small_mask, (640, 480))
 		translationM = np.float32([[1, 0, x_offset_mask*mask_grid_size], [0, 1, y_offset_mask*mask_grid_size]])
 		resized_mask = cv2.warpAffine(resized_mask, translationM, (640, 480)) # translate (shift) the image
-		cv2.imwrite('VPG_log/labeled/%d_mask.png'%num, resized_mask)
-		print resized_mask.shape
-		cv2.imwrite('VPG_log/labeled/%d_masked.png'%num, masked_img)
+		# cv2.imwrite('VPG_log/labeled/%d_mask.png'%num, resized_mask)
+		# print resized_mask.shape
+		# cv2.imwrite('VPG_log/labeled/%d_masked.png'%num, masked_img)
 
 	def visualize(self, num):
 		# visualize classification
@@ -242,18 +242,23 @@ class LaneDetector:
 			class_image = resized_mask.astype('uint8')
 			class_mask = class_image > 0 # Returns Boolean.
 
-			# Trying to get individual class mask from ground truth
-			ground_type = ground_transform # ground_transform is the ground truth
-			for i in range(0, 480):
-			    for j in range(0, 640):
-			        if ground_type[i,j] != x: # x is the class, i.e. range(1,18)
-			            ground_type[i,j] = 0
+			# # Trying to get individual class mask from ground truth
+			# ground_type = ground_transform # ground_transform is the ground truth
+			# for i in range(0, 480):
+			#     for j in range(0, 640):
+			#         if ground_type[i,j] != x: # x is the class, i.e. range(1,18)
+			#             ground_type[i,j] = 0
 
-			ground_mask = ground_type > 0 # Returns Boolean.
+			# ground_mask = ground_type > 0 # Returns Boolean.
+
+			temp_ground_map = [None] * 18	# Create empty list for 18 classes
+			temp_ground_map[x] = (ground_transform == x)
+			temp_ground_map[x] = temp_ground_map[x].astype(np.uint8) # Translate True/False to 1-0
+
 			extend_mask = np.ones((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
 			for i in range(0, 480, 8):
 			    for j in range(0, 640, 8):
-			        if ground_mask[i,j].any() == True: # if this pixel have label, this 8*8 grid should have same label
+			        if temp_ground_map[x][i,j] == True: # if this pixel have label, this 8*8 grid should have same label
 			            area_mask = create_circular_mask(480, 640, center = (i,j), radius = 4)
 			            extend_mask = extend_mask + area_mask # add the area_mask to blank mask
 			single_class_f1 = f1_score(extend_mask.flatten(), class_mask.flatten())
