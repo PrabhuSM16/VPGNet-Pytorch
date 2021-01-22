@@ -7,92 +7,87 @@ import os
 import random
 import matplotlib.pyplot as plt
 import numpy as np
-import cv2
-
-imPath = '../data/images'
-trAnnPath = 'vpgnet_annot.txt'
-vlAnnPath = 'vpgnet_annot.txt'
-tsAnnPath = 'vpgnet_annot.txt'
 
 class VPG_dataloader(Dataset):
   def __init__(self, 
                imPath, 
-               trAnnPath, 
-               vlAnnPath, 
-               tsAnnPath,
-               numClass=17,
+               annPath, 
+               classList,
                _transforms=None,            
                mode='train'):
-    for i in [imPath, trAnnPath, vlAnnPath, tsAnnPath]:
-      assert os.path.exists(i), f'Error: {i} does not exists!'
+    
+    assert os.path.exists(imPath), f'Error: {imPath} does not exists!'
+    assert os.path.exists(annPath), f'Error: {annPath} does not exists!'
+    
     self.mode = mode
     if _transforms is not None:
       self.transforms = tf.Compose(_transforms)
     else:
       self.transforms = tf.Compose([tf.ToTensor])
-#    self.numClass = numClass
+    
+    self.classlist, self.numclass = self.get_classdict(classList)
+    
     self.imgpath = imPath
-    self.trainlist = None
-    self.vallist = None
-    self.testlist = None
-    if self.mode=='train':
-      self.trainlist = self.extractAnnots(trAnnPath)
-      self.num_imgs = len(self.trainlist)
-    elif self.mode=='val':  
-      self.vallist = self.extractAnnots(vlAnnPath)
-      self.num_imgs = len(self.vallist)
-    elif self.mode=='test':
-      self.testlist = self.extractAnnots(tsAnnPath)
-      self.num_imgs = len(self.testlist)
-    else:
-      raise ValueError(f'"{mode}" mode is not recognized!')
+    self.annotlist, self.num_imgs = self.extractAnnots(annPath)
     print(f'Num "{self.mode}" imgs: {self.num_imgs}')
   
   def extractAnnots(self, annotfile):
     with open(annotfile, 'r') as f:
       annotlist = sorted(f.readlines())
-      random.shuffle(annotlist)
-    return annotlist
+    return annotlist, len(annotlist)
   
+  def get_classdict(self, classList):
+    with open(classList, 'r') as f:
+      classes = f.readlines()
+      classes = {i+1: classes[i].strip('\n') for i in range(len(classes))}
+    return classes, len(classes)
+    
   def genLabels(self, annots):
-    multiLabel = torch.FloatTensor(64,480,640).fill_(0.)
-    objectMask = torch.FloatTensor(2,480,640).fill_(0.)
-#    gridBox = torch.FloatTensor(self.numClass,480,640)
-#    vpp = torch.FloatTensor(self.numClass,480,640)
+    ### NOTE: gridBox and vpp NOT UP YET ###
+    multiLabel = torch.LongTensor(1,480,640).fill_(0.) #64x480x640
+    objectMask = torch.LongTensor(1,480,640).fill_(0.) #2x480x640
+    gridBox = torch.LongTensor(4,480,640).fill_(0.) #4x480x640
+    vpp = torch.LongTensor(5,480,640).fill_(0.) #5x480x640
+
     for coords in annots:
       x1,y1,x2,y2,lb = coords.split(' ')
-      multiLabel[int(lb)-1,int(y1):int(y2),int(x1):int(x2)] = 1.
-      objectMask[1,int(y1):int(y2),int(x1):int(x2)] = 1
-    objectMask[0,:,:] = 1 - objectMask[1,:,:]
+      multiLabel[0,int(y1):int(y2),int(x1):int(x2)] = int(lb)
+      objectMask[0,int(y1):int(y2),int(x1):int(x2)] = 1
+    
+    # objectMask[0,:,:] = 1 - objectMask[1,:,:]
     multiLabel = tf.Resize((60,80), Image.NEAREST)(multiLabel)
     objectMask = tf.Resize((120,160), Image.NEAREST)(objectMask)
-    return [multiLabel, objectMask]
+    return [multiLabel, objectMask, gridBox, vpp]
   
-#  def denorm(self)
   def __getitem__(self, i):
-    if self.mode=='train':
-      annots = self.trainlist[i].strip('\n').split('  ')
-    elif self.mode=='val':
-      annots = self.vallist[i].strip('\n').split('  ')
-    elif self.mode=='test':
-      annots = self.testlist[i].strip('\n').split('  ')
+    annots = self.annotlist[i].strip('\n').split('  ')
     img = self.transforms(Image.open(os.path.join(self.imgpath,annots[0])))
+    # index 0: image name, index 1: num labels, index 2 onwards: bbox annot
     self.num_labels = annots[1]
-    multiLabel, objectMask = self.genLabels(annots[2:])
-    return {'image': img, 'multiLabel': multiLabel, 'objectMask': objectMask}
+    multiLabel, objectMask, gridBox, vpp = self.genLabels(annots[2:])
+    return {'image': img, 
+            'multiLabel': multiLabel, 
+            'objectMask': objectMask,
+            'gridBox': gridBox,
+            'vpp': vpp}
   
   def __len__(self):
     return self.num_imgs
 
 if __name__=='__main__':
+  import cv2
+
+  imPath = '../data/images'
+  annPath = '../data/vpgnet_annot.txt'
+  classList = '../data/classlist_no-yellow-box.txt'
+ 
   tfm = [tf.Resize((480,640), Image.BICUBIC),
          tf.ToTensor(),
          tf.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))]
 
   dataset = VPG_dataloader(imPath,
-                           trAnnPath,
-                           vlAnnPath,
-                           tsAnnPath,
+                           annPath,
+                           classList,
                            mode='test',
                            _transforms=tfm)
   
@@ -101,6 +96,8 @@ if __name__=='__main__':
                           shuffle=True, 
                           num_workers=1, 
                           drop_last=True)
+
+  print(dataloader.dataset.get_classdict)
   
   for i, batch in enumerate(dataloader):
     print(f"image: {batch['image'].shape}, multiLabel: {batch['multiLabel'].shape}, objectMask: {batch['objectMask'].shape}")
@@ -110,6 +107,8 @@ if __name__=='__main__':
 #    print(f'max:{op.max():.4f}, min:{op.min():.4f}, avg:{op.mean():.4f}')
     plt.imshow(cv2.resize(op, (640,480), cv2.INTER_CUBIC).astype(np.uint8))
     plt.show()
+    
+    
     
 
 
