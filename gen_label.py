@@ -1,3 +1,5 @@
+# Warning: This Script is not recommended any more. Please use gen_label_v*.py for file list generating, and the gen_image.py for image (masked image and original image) generation.
+
 # Generate annotated file list and masked images for all .mat file under current path iteratively (include subfolders).
 # Usage:
 #    python3 ./gen_label.py [output_file.txt]

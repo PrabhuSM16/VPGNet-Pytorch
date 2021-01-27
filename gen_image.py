@@ -40,6 +40,9 @@ def generate_labeled_image(row_image, pixel_labels, color_mat, classes = 17):
 #
 if __name__=="__main__":
 
+    p_im = False
+    p_mask = False
+
     param = sys.argv[1]
     if (('i' not in param) and ('m' not in param)):
         raise ValueError("wrong parameters! See gen_label_v3.py file for usage.")
