@@ -1,114 +1,106 @@
 # .mat file based dataloader
+# @ZICHEN
+#
 # -*- coding: utf-8 -*-
+
 import torch
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as tf
-from PIL import Image
 import os
-import random
-import matplotlib.pyplot as plt
-import numpy as np
+from scipy.io import loadmat
 
+# Dataset Class for loading VPG .mat database
 class VPG_dataset(Dataset):
-  def __init__(self, 
-               imPath, 
-               annPath, 
-               classList,
-               _transforms=None,            
-               mode='train'):
-    
-    assert os.path.exists(imPath), f'Error: {imPath} does not exists!'
-    assert os.path.exists(annPath), f'Error: {annPath} does not exists!'
-    
-    self.mode = mode
-    if _transforms is not None:
-      self.transforms = tf.Compose(_transforms)
-    else:
-      self.transforms = tf.Compose([tf.ToTensor])
-    
-    self.classlist, self.numclass = self.get_classdict(classList)
-    
-    self.imgpath = imPath
-    self.annotlist, self.num_imgs = self.extractAnnots(annPath)
-    print(f'Num "{self.mode}" imgs: {self.num_imgs}')
-  
-  def extractAnnots(self, annotfile):
-    with open(annotfile, 'r') as f:
-      annotlist = sorted(f.readlines())
-    return annotlist, len(annotlist)
-  
-  def get_classdict(self, classList):
-    with open(classList, 'r') as f:
-      classes = f.readlines()
-      classes = {i+1: classes[i].strip('\n') for i in range(len(classes))}
-    return classes, len(classes)
-    
-  def genLabels(self, annots):
-    ### NOTE: gridBox and vpp NOT UP YET ###
-    multiLabel = torch.LongTensor(1,480,640).fill_(0.) #64x480x640
-    objectMask = torch.LongTensor(1,480,640).fill_(0.) #2x480x640
-    gridBox = torch.LongTensor(4,480,640).fill_(0.) #4x480x640
-    vpp = torch.LongTensor(5,480,640).fill_(0.) #5x480x640
+    def __init__(self,
+                 data_path,
+                 class_list,
+                 mode = 'train'):
 
-    for coords in annots:
-      x1,y1,x2,y2,lb = coords.split(' ')
-      multiLabel[0,int(y1):int(y2),int(x1):int(x2)] = int(lb)
-      objectMask[0,int(y1):int(y2),int(x1):int(x2)] = 1
-    
-    # objectMask[0,:,:] = 1 - objectMask[1,:,:]
-    multiLabel = tf.Resize((60,80), Image.NEAREST)(multiLabel)
-    objectMask = tf.Resize((120,160), Image.NEAREST)(objectMask)
-    return [multiLabel, objectMask, gridBox, vpp]
-  
-  def __getitem__(self, i):
-    annots = self.annotlist[i].strip('\n').split('  ')
-    img = self.transforms(Image.open(os.path.join(self.imgpath,annots[0])))
-    # index 0: image name, index 1: num labels, index 2 onwards: bbox annot
-    self.num_labels = annots[1]
-    multiLabel, objectMask, gridBox, vpp = self.genLabels(annots[2:])
-    return {'image': img, 
-            'multiLabel': multiLabel, 
-            'objectMask': objectMask,
-            'gridBox': gridBox,
-            'vpp': vpp}
-  
-  def __len__(self):
-    return self.num_imgs
+        assert os.path.exists(data_path), f"Error: {data_path} does not exists!"
 
+        self.mode = mode
+        self.class_list, self.num_class = self.getClassdict(class_list)
+        self.data_path = data_path
+        self.data_list, self.num_imgs = self.getDataList(data_path)
+        print(f"Mode: {self.mode}, Total data: {self.num_imgs}")
+
+    def getClassdict(self, class_list):
+        with open(class_list, 'r') as f:
+            classes = f.readlines()
+            classes = {i+1: classes[i].strip('\n') for i in range(len(classes))}
+        return classes, len(classes)
+
+    def getDataList(self, data_path):
+        with open(data_path, 'r') as f:
+            data_list = sorted(f.readlines())
+        return data_list, len(data_list)
+
+    def genImg(self, mat):
+        img = mat[:, :, :3] # RGB image
+        img = torch.from_numpy(img)
+        return img
+
+    def genVPMap(self, vp_mat):
+        x, y = np.where(vp_mat == 1)
+        map_stack = np.zeros((5, 480, 640))
+        x = int(x)
+        y = int(y)
+        map_stack[0, x, y] = 1
+        map_stack[1, :x+1, y:] = 1
+        map_stack[2, :x+1, :y+1] = 1
+        map_stack[3, x:, :y+1] = 1
+        map_stack[4, x:, y:] = 1
+        map_stack = torch.from_numpy(map_stack)
+        return map_stack
+
+    def genLabels(self, mat):
+        # Initialize the grid box matrix
+        grid_box = torch.LongTensor(4, 480, 640).fill_(0.)
+
+        # Read mat file into matrix
+        mat_data = loadmat(mat)
+        multi_label[0, :, :] = torch.from_numpy(mat_data[:, :, 3]) # TBC, for type matching
+        object_mask[0, :, :] = torch.from_numpy((mat_data[:, :, 3] != 0).astype(float))
+        vp = genVPMap(mat_data[:, :, 4])
+
+        multi_label = tf.Resize((60, 80), Image.NEAREST)(multi_label)
+        object_mask = tf.Resize((120, 160), Image.NEAREST)(object_mask)
+        vp = tf.Resize((120, 160), Image.NEAREST)(vp)
+        return [multi_label, object_mask, grid_box, vp]
+
+
+    def __getitem__(self, i):
+        mat = self.data_list[i]
+        img = self.genImg(mat)
+        multi_label, object_mask, grid_box, vp = self.genLabels(mat)
+        return {'image': img,
+                'multi_label': multi_label,
+                'object_mask': object_mask,
+                'grid_box': grid_box,
+                'vp': vp}
+
+
+# Main function
 if __name__=='__main__':
-  import cv2
 
-  imPath = '../data/images'
-  annPath = '../data/vpgnet_annot.txt'
-  classList = '../data/classlist.txt'
- 
-  tfm = [tf.Resize((480,640), Image.BICUBIC),
-         tf.ToTensor(),
-         tf.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))]
+    # set path to all the .mat data
+    # .mat database saves [r,g,b,class,vp] five channel info
+    data_path = '../t_data/t_im'
+    class_list = '../data/classlist.txt'
 
-  dataset = VPG_dataset(imPath,
-                        annPath,
-                        classList,
-                        mode='test',
-                        _transforms=tfm)
-  
-  dataloader = DataLoader(dataset, 
-                          batch_size=1, 
-                          shuffle=True, 
-                          num_workers=1, 
-                          drop_last=True)
-  
-  for i, batch in enumerate(dataloader):
-    print(f"image: {batch['image'].shape}, multiLabel: {batch['multiLabel'].shape}, objectMask: {batch['objectMask'].shape}")
-    op = np.array(batch['multiLabel'][0][12:15].mul(255.).clamp(0,255)).transpose(1,2,0)
-#    op = np.array(batch['objectMask'][0,0,:,:].mul(255.).clamp(0,255))
-#    plt.imshow(op)
-#    print(f'max:{op.max():.4f}, min:{op.min():.4f}, avg:{op.mean():.4f}')
-    plt.imshow(cv2.resize(op, (640,480), cv2.INTER_CUBIC).astype(np.uint8))
-    plt.show()
+    vpg_dataset = VPG_dataset(data_path,
+                          class_list,
+                          mode = 'test')
     
+    dataloader = DataLoader(vpg_dataset, 
+                            batch_size = 1, 
+                            shuffle = True)
     
-    
+    for i, batch in enumerate(dataloader):
+        print(f"image: {batch['image'].shape}, multiLabel: {batch['multiLabel'].shape}, objectMask: {batch['objectMask'].shape}")
+        op = np.array(batch['multiLabel'][0][12:15].mul(255.).clamp(0,255)).transpose(1,2,0)
+        
+        
+        
 
 
 
