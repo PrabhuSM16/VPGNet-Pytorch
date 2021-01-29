@@ -84,12 +84,12 @@ if __name__=='__main__':
 
     # set path to all the .mat data
     # .mat database saves [r,g,b,class,vp] five channel info
-    data_path = '../t_data/t_im'
+    data_path = '../t_data/train_list.txt'
     class_list = '../data/classlist.txt'
 
     vpg_dataset = VPG_dataset(data_path,
-                          class_list,
-                          mode = 'test')
+                              class_list,
+                              mode = 'test')
     
     dataloader = DataLoader(vpg_dataset, 
                             batch_size = 1, 
