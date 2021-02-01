@@ -73,7 +73,7 @@ def getHighestPath(search_path):
     return h_path
 
 
-if __name__ = "__main__":
+if __name__ == "__main__":
     # Recommend: below code run in Jupyter Notebook
     classes = 18
     root_path = "./"

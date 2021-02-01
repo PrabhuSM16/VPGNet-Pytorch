@@ -184,11 +184,11 @@ class LaneDetector:
 		def create_circular_mask(h, w, center=None, radius=None):
 			# Create a circular mask from center on an (h,w) map with euclidean distance radius
 			if center is None: # use the middle of the image
-			    center = (int(w/2), int(h/2))
+				center = (int(h/2), int(w/2))
 			if radius is None: # use the smallest distance between the center and image walls
-			    radius = min(center[0], center[1], w-center[0], h-center[1])
+				radius = min(center[0], center[1], h-center[0], w-center[1])
 
-			Y, X = np.ogrid[:h, :w]
+			X, Y = np.ogrid[:h, :w]
 			dist_from_center = np.sqrt((X - center[0])**2 + (Y-center[1])**2)
 
 			mask = dist_from_center <= radius
@@ -253,9 +253,9 @@ class LaneDetector:
 
 			temp_ground_map = [None] * 18	# Create empty list for 18 classes
 			temp_ground_map[x] = (ground_transform == x)
-			temp_ground_map[x] = temp_ground_map[x].astype(np.uint8) # Translate True/False to 1-0
+			temp_ground_map[x] = temp_ground_map[x].astype(np.bool) # Translate True/False to 1-0
 
-			extend_mask = np.ones((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
+			extend_mask = np.zeros((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
 			for i in range(0, 480, 8):
 			    for j in range(0, 640, 8):
 			        if temp_ground_map[x][i,j] == True: # if this pixel have label, this 8*8 grid should have same label
