@@ -256,8 +256,8 @@ class LaneDetector:
 			temp_ground_map[x] = temp_ground_map[x].astype(np.bool) # Translate True/False to 1-0
 
 			extend_mask = np.zeros((480, 640), dtype=bool) # extended groundtruth (from 8*8 square grid to radius R circle)
-			for i in range(0, 480, 8):
-			    for j in range(0, 640, 8):
+			for i in range(0, 480):
+			    for j in range(0, 640):
 			        if temp_ground_map[x][i,j] == True: # if this pixel have label, this 8*8 grid should have same label
 			            area_mask = create_circular_mask(480, 640, center = (i,j), radius = 4)
 			            extend_mask = extend_mask + area_mask # add the area_mask to blank mask
