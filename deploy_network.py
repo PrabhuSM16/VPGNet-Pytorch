@@ -1,3 +1,6 @@
+## DISCLAIMER: This script has been heavily referenced from another github repository that modifies the VPGNet implementation.
+## Link: https://github.com/ArayCHN/VPGNet_for_lane
+
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score, recall_score
