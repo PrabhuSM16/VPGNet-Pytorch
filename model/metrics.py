@@ -56,8 +56,30 @@ def compute_class_scores(pred, gt, classes, mask_R=4):
         precision_dict[c] += precision_score(gt_mask.flatten(), pred_mask.flatten())
   
   # take average across batch
-  # f1_dict = {classes[c]: f1_dict[c]/bsize for c in f1_dict}
-  # recall_dict = {classes[c]: recall_dict[c]/bsize for c in recall_dict}
-  # precision_dict = {classes[c]: precision_dict[c]/bsize for c in precision_dict}
+  f1_dict = {classes[c]: f1_dict[c]/bsize for c in f1_dict}
+  recall_dict = {classes[c]: recall_dict[c]/bsize for c in recall_dict}
+  precision_dict = {classes[c]: precision_dict[c]/bsize for c in precision_dict}
   return f1_dict, recall_dict, precision_dict
 
+def compute_vp_scores(pred, gt):
+  # Use original tensor shape and normalized values from net output
+  # Returns accumulated scores for batch
+  f1, recall, precision = 0, 0, 0
+  pred_shape = pred.shape
+  bsize, h, w = pred_shape
+  assert pred_shape == gt.shape, f'Error: Pred {pred_shape} and GT {gt.shape} have mismatched shapes!'
+  
+  for b in range(bsize):
+    # individual batch size
+    pred_mask = pred[b,:,:].cpu().numpy() > 0
+    gt_mask = gt[b,:,:].cpu().numpy() > 0
+    # compute and accumulate scores across batch
+    f1 += f1_score(gt_mask.flatten(), pred_mask.flatten())
+    recall += recall_score(gt_mask.flatten(), pred_mask.flatten())
+    ##precision += precision_score(gt_mask.flatten(), pred_mask.flatten())
+  
+  # take average across batch
+  f1 /= bsize
+  recall /= bsize
+  #precision /= bsize
+  return f1, recall, precision
