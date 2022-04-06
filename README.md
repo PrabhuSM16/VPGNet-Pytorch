@@ -1,8 +1,8 @@
 # VPGNet-Pytorch
 A Pytorch implementation of VPGNet
 
-## THIS PROJECT IS STILL UNDER CONSTRUCTION
-Thanks for star and issues. We are currently working on this, you can keep watching for the latest updates. THANKS!
+## WARN
+We have stopped maintaining this repo, yet its not completely run-able. We would recommand you to turn to other pytorch-based implementations or fork/contribute by your own. Thanks!
 
 ## Update Log
 Recent updates would be uploaded here in time line.
